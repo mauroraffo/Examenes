@@ -1,0 +1,454 @@
+// Core state
+let RAW = []; // rows from CSV
+let COLS = [];
+let BY_FLOTA = new Map();
+let CURRENT_FLOTA = null;
+let CURRENT_EQUIPO = null;
+
+// Drafts storage: localStorage 'drafts' = { "<equipo>|<fechaISO>": {horometro, rows:{P1:{...},...}, fotos:{P1:[{name, file}],...}, flota } }
+function loadDraftsFromStorage() {
+  try { return JSON.parse(localStorage.getItem('drafts')||'{}'); } catch { return {}; }
+}
+function saveDraftsToStorage(drafts) {
+  localStorage.setItem('drafts', JSON.stringify(drafts));
+}
+let DRAFTS = loadDraftsFromStorage();
+
+// Helpers
+const $ = (q)=>document.querySelector(q);
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.style.display="block"; setTimeout(()=>t.style.display="none",2000); }
+function parseDate(s){
+  if(!s) return null;
+  const d1 = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(d1){ return new Date(+d1[3], +d1[2]-1, +d1[1]); }
+  const d2 = s.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if(d2){ return new Date(+d2[1], +d2[2]-1, +d2[3]); }
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+function toP(val){
+  const s = String(val??'').trim().toUpperCase();
+  if(['1','2','3','4'].includes(s)) return 'P'+s;
+  const m = s.match(/P\s*(\d+)/);
+  if(m && ['1','2','3','4'].includes(m[1])) return 'P'+m[1];
+  const n = parseInt(s,10); if([1,2,3,4].includes(n)) return 'P'+n;
+  return null;
+}
+function ddmmyyyy(d){ const z=n=>String(n).padStart(2,'0'); return `${z(d.getDate())}/${z(d.getMonth()+1)}/${d.getFullYear()}`; }
+function ddmmyyyy_compact(d){ const z=n=>String(n).padStart(2,'0'); return `${z(d.getDate())}${z(d.getMonth()+1)}${d.getFullYear()}`; }
+
+// Columns mapping heuristics
+function col(name){
+  const ix = COLS.findIndex(c=>String(c).trim().toLowerCase()===name.toLowerCase());
+  return ix>=0 ? COLS[ix] : null;
+}
+function findColumn(regexes){
+  for(const c of COLS){
+    for(const r of regexes){
+      if(r.test(c)) return c;
+    }
+  }
+  return null;
+}
+
+let COL_POS, COL_EQUIPO, COL_FLOTA, COL_FECHA, COL_HORO, COL_MARCA, COL_TIPO, COL_SERIE, COL_HRTOT, COL_RIZQ, COL_RDER;
+function mapColumns(){
+  COL_POS   = col('Posición') || col('Posicion') || col('PosiciónBF') || findColumn([/posici/i]);
+  COL_EQUIPO= col('Equipo') || findColumn([/equipo|unidad|veh[ií]culo|vehiculo/i]);
+  COL_FLOTA = col('Flota')  || col('Nombre Cliente') || findColumn([/flota|fleet|cliente/i]);
+  COL_FECHA = col('Fecha Evento') || findColumn([/fecha/i]);
+  COL_HORO  = col('Horómetro') || col('Horometro') || findColumn([/horo/i]);
+  COL_MARCA = col('Marca Neumático') || findColumn([/marca/i]);
+  COL_TIPO  = col('Tipo Neumático')  || findColumn([/dise|pattern|tipo/i]);
+  COL_SERIE = col('Serie') || findColumn([/serial/i]);
+  COL_HRTOT = col('Horas Totales') || findColumn([/hora/i]);
+  COL_RIZQ  = col('Rem. Izquierdo') || findColumn([/izq/i]);
+  COL_RDER  = col('Rem. Derecho')   || findColumn([/der/i]);
+}
+
+// Load CSV with diagnostics and delimiter fallbacks
+$("#csv").addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  const diag = document.getElementById('diag');
+  if(!file){
+    diag.innerHTML = '<span class="diag-warn">No se seleccionó archivo.</span>';
+    return;
+  }
+  if(!/\.csv$/i.test(file.name)){
+    diag.innerHTML = `<span class="diag-warn">El archivo "${file.name}" no es .csv. Intentaré leerlo igual.</span>`;
+  }
+  if(file.size === 0){
+    diag.innerHTML = `<span class="diag-err">El archivo está vacío (0 bytes). Descárgalo a "Descargas" y vuelve a seleccionarlo.</span>`;
+    return;
+  }
+
+  function parseWith(delim, onDone){
+    Papa.parse(file, {
+      header:true, skipEmptyLines:true, delimiter:delim,
+      complete: (res)=> onDone(res)
+    });
+  }
+
+  function postProcess(res){
+    try{
+      if(res.meta.fields && res.meta.fields.length === 1){
+        parseWith(',', (res2)=>{
+          if(res2.meta.fields && res2.meta.fields.length > 1){
+            return postProcess(res2);
+          }else{
+            parseWith('\t', (res3)=> postProcess(res3));
+            return;
+          }
+        });
+        return;
+      }
+      const fieldsOrig = res.meta.fields || [];
+      const fieldsTrim = fieldsOrig.map(c => c ? String(c).trim() : c);
+      RAW = (res.data||[]).map(row => {
+        const o = {};
+        fieldsOrig.forEach((orig, i)=>{ o[fieldsTrim[i]] = row[orig]; });
+        return o;
+      });
+      COLS = fieldsTrim;
+      mapColumns();
+      indexByFlotaEquipo();
+      fillFlotas();
+      fillEquipos();
+      $("#equiponame").textContent='—';
+      $("#fechalast").textContent='—';
+      $("#horolast").textContent='—';
+      renderDraftsList();
+
+      const colsTxt = `Equipo: ${COL_EQUIPO||'-'} | Flota: ${COL_FLOTA||'-'} | Posición: ${COL_POS||'-'} | Fecha: ${COL_FECHA||'-'}`;
+      if(!COL_EQUIPO || !COL_POS || !COL_FECHA){
+        diag.innerHTML = `<span class="diag-err">CSV leído (${RAW.length} filas, ${COLS.length} columnas) pero faltan columnas clave.</span><br>${colsTxt}<br><span class="diag-warn">Revisa nombres similares a: Equipo, Posición/PosiciónBF, Fecha Evento, Flota/Nombre Cliente.</span>`;
+      }else{
+        diag.innerHTML = `<span class="diag-ok">CSV cargado: ${RAW.length} filas, ${COLS.length} columnas.</span><br>${colsTxt}`;
+      }
+      toast(`CSV cargado: ${RAW.length} filas`);
+    }catch(err){
+      console.error(err);
+      diag.innerHTML = `<span class="diag-err">No se pudo leer el CSV: ${err.message||err}.</span>`;
+    }
+  }
+  parseWith(';', postProcess);
+});
+
+function indexByFlotaEquipo(){
+  BY_FLOTA.clear();
+  for(const row of RAW){
+    const fl = COL_FLOTA ? (row[COL_FLOTA]||'') : '(Todas)';
+    const eq = row[COL_EQUIPO];
+    if(!eq) continue;
+    if(!BY_FLOTA.has(fl)) BY_FLOTA.set(fl, new Map());
+    const m = BY_FLOTA.get(fl);
+    if(!m.has(eq)) m.set(eq, []);
+    m.get(eq).push(row);
+  }
+}
+
+function fillFlotas(){
+  const sel = $("#flota");
+  sel.innerHTML='';
+  const optAll = document.createElement('option'); optAll.value='(Todas)'; optAll.textContent='(Todas)';
+  sel.appendChild(optAll);
+  for(const fl of Array.from(BY_FLOTA.keys()).sort()){
+    const o=document.createElement('option'); o.value=fl; o.textContent=fl; sel.appendChild(o);
+  }
+  sel.value='(Todas)';
+  CURRENT_FLOTA='(Todas)';
+  sel.addEventListener('change', ()=>{ CURRENT_FLOTA=sel.value; fillEquipos(); });
+  $("#buscaEquipo").addEventListener('input', ()=> fillEquipos());
+}
+
+function fillEquipos(){
+  const list = $("#equipo");
+  list.innerHTML='';
+  const search = $("#buscaEquipo").value.toLowerCase();
+  const map = BY_FLOTA.get(CURRENT_FLOTA) || new Map();
+  const equipos = Array.from(map.keys()).sort((a,b)=>{
+    const na = parseInt(String(a).match(/(\d+)/)?.[1]||'0',10);
+    const nb = parseInt(String(b).match(/(\d+)/)?.[1]||'0',10);
+    return na-nb || String(a).localeCompare(String(b));
+  });
+  for(const eq of equipos){
+    if(search && !String(eq).toLowerCase().includes(search)) continue;
+    const o=document.createElement('option'); o.value=eq; o.textContent=eq;
+    list.appendChild(o);
+  }
+  list.addEventListener('change', ()=>{
+    CURRENT_EQUIPO = list.value;
+    renderEquipo(CURRENT_EQUIPO);
+    restoreDraftIfAny();
+  });
+  if(list.options.length>0){ list.selectedIndex = 0; CURRENT_EQUIPO = list.value; renderEquipo(CURRENT_EQUIPO); restoreDraftIfAny(); }
+}
+
+function lastByPosition(rows){
+  const byPos = {P1:null,P2:null,P3:null,P4:null};
+  for(const r of rows){
+    const p = toP(r[COL_POS]);
+    if(!p) continue;
+    const d = parseDate(r[COL_FECHA]) || new Date(0);
+    if(!byPos[p] || (d > (parseDate(byPos[p][COL_FECHA])||new Date(0)))){
+      byPos[p]=r;
+    }
+  }
+  return byPos;
+}
+
+function renderEquipo(eq){
+  $("#equiponame").textContent = eq || '—';
+  const rows = (BY_FLOTA.get(CURRENT_FLOTA)||new Map()).get(eq)||[];
+  const last = lastByPosition(rows);
+  let lastRow = null;
+  for(const r of rows){
+    if(!lastRow || (parseDate(r[COL_FECHA]) > parseDate(lastRow[COL_FECHA]))) lastRow = r;
+  }
+  $("#fechalast").textContent = lastRow ? (parseDate(lastRow[COL_FECHA]) ? ddmmyyyy(parseDate(lastRow[COL_FECHA])) : '—') : '—';
+  $("#horolast").textContent  = lastRow ? (lastRow[COL_HORO]||'—') : '—';
+
+  renderPos('p1c', last['P1']);
+  renderPos('p2c', last['P2']);
+  renderPos('p3c', last['P3']);
+  renderPos('p4c', last['P4']);
+  buildForm(eq, last);
+}
+
+function renderPos(id, r){
+  const el = document.getElementById(id);
+  if(!r){ el.innerHTML = '<div class="muted">Sin neumático asignado.</div>'; return; }
+  const fecha = parseDate(r[COL_FECHA]);
+  el.innerHTML = `
+    <div><b>Marca:</b> ${r[COL_MARCA]||'-'} <br/>
+    <b>Diseño:</b> ${r[COL_TIPO]||'-'}</div>
+    <div><b>Serie:</b> ${r[COL_SERIE]||'-'}</div>
+    <div><b>Horas totales:</b> ${r[COL_HRTOT]||'-'}</div>
+    <div><b>Rem. Izq / Der:</b> ${r[COL_RIZQ]||'-'} / ${r[COL_RDER]||'-'}</div>
+    <div class="muted">Último evento: ${fecha? ddmmyyyy(fecha):'-'}</div>
+  `;
+}
+
+function buildForm(eq, last){
+  const cont = $("#formPos");
+  cont.innerHTML = '';
+  const fechaISO = ($("#fechaExam").value || new Date().toISOString().slice(0,10));
+  const draftKey = `${eq}|${fechaISO}`;
+
+  if(!$("#horoExam").value){ $("#horoExam").value = $("#horolast").textContent==='—' ? '' : $("#horolast").textContent; }
+
+  const positions = ['P1','P2','P3','P4'];
+  for(const p of positions){
+    const r = last[p];
+    const d = (DRAFTS[draftKey]?.rows?.[p]) || {};
+    const serie = d.serie ?? (r?.[COL_SERIE]||'');
+    const rizq  = d.rizq  ?? (r?.[COL_RIZQ]||'');
+    const rder  = d.rder  ?? (r?.[COL_RDER]||'');
+    const ct    = d.ct    ?? '';
+    const psi   = d.psi   ?? '';
+
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `
+      <div class="title">${p}</div>
+      <label>Serie (${p})</label><input type="text" id="serie_${p}" value="${serie}"/>
+      <label>Rem. Izq (${p})</label><input type="text" id="rizq_${p}" value="${rizq}"/>
+      <label>Rem. Der (${p})</label><input type="text" id="rder_${p}" value="${rder}"/>
+      <label>CT examen (${p})</label><input type="text" id="ct_${p}" value="${ct}"/>
+      <label>Presión PSI (${p})</label><input type="text" id="psi_${p}" value="${psi}"/>
+      <label>Fotos (${p})</label><input type="file" id="fotos_${p}" accept="image/*" multiple capture="environment"/>
+      <div class="muted" id="infof_${p}"></div>
+    `;
+    cont.appendChild(div);
+  }
+  for(const p of ['P1','P2','P3','P4']){
+    const info = document.getElementById(`infof_${p}`);
+    const n = DRAFTS[draftKey]?.fotos?.[p]?.length || 0;
+    if(n>0) info.textContent = `Fotos guardadas: ${n}`;
+  }
+}
+
+$("#btnSave").addEventListener('click', ()=>{
+  if(!CURRENT_EQUIPO){ toast('Elige un equipo'); return; }
+  const fechaISO = ($("#fechaExam").value || new Date().toISOString().slice(0,10));
+  const key = `${CURRENT_EQUIPO}|${fechaISO}`;
+
+  const rows = {};
+  for(const p of ['P1','P2','P3','P4']){
+    rows[p] = {
+      serie: $("#serie_"+p).value.trim(),
+      rizq:  $("#rizq_"+p).value.trim(),
+      rder:  $("#rder_"+p).value.trim(),
+      ct:    $("#ct_"+p).value.trim(),
+      psi:   $("#psi_"+p).value.trim()
+    };
+  }
+  const fotos = DRAFTS[key]?.fotos || {};
+  for(const p of ['P1','P2','P3','P4']){
+    const input = document.getElementById("fotos_"+p);
+    if(input && input.files && input.files.length){
+      fotos[p] = fotos[p] || [];
+      for(const f of input.files){ fotos[p].push({name:f.name, file:f}); }
+      document.getElementById('infof_'+p).textContent = `Fotos guardadas: ${fotos[p].length}`;
+      input.value = '';
+    }
+  }
+  DRAFTS[key] = {
+    horometro: $("#horoExam").value.trim(),
+    rows, fotos,
+    flota: CURRENT_FLOTA
+  };
+  saveDraftsToStorage(DRAFTS);
+  renderDraftsList();
+  toast('Borrador guardado');
+});
+
+function renderDraftsList(){
+  const box = $("#draftList");
+  if(!Object.keys(DRAFTS).length){ box.textContent = "Sin borradores."; return; }
+  const items = Object.entries(DRAFTS).sort(([a],[b])=>a.localeCompare(b));
+  box.innerHTML = items.map(([k,v])=>{
+    const [eq,fecha]=k.split('|');
+    const d=new Date(fecha);
+    const label = `${eq} — ${ddmmyyyy(d)}`;
+    return `<div><a href="#" data-k="${k}" class="openDraft">${label}</a></div>`;
+  }).join('');
+  box.querySelectorAll('.openDraft').forEach(a=> a.addEventListener('click', (ev)=>{
+    ev.preventDefault();
+    const k = ev.target.dataset.k;
+    const [eq,fecha]=k.split('|');
+    CURRENT_EQUIPO = eq;
+    const list = $("#equipo");
+    for(const opt of list.options){ if(opt.value===eq){ list.value=eq; break; } }
+    renderEquipo(eq);
+    $("#fechaExam").value = fecha;
+    restoreDraftIfAny();
+    toast('Borrador abierto');
+  }));
+}
+
+function restoreDraftIfAny(){
+  const fechaISO = ($("#fechaExam").value || new Date().toISOString().slice(0,10));
+  const key = `${CURRENT_EQUIPO}|${fechaISO}`;
+  const d = DRAFTS[key];
+  if(!d) { buildForm(CURRENT_EQUIPO, lastByPosition((BY_FLOTA.get(CURRENT_FLOTA)||new Map()).get(CURRENT_EQUIPO)||[])); return; }
+  $("#horoExam").value = d.horometro || '';
+  for(const p of ['P1','P2','P3','P4']){
+    const r = d.rows?.[p] || {};
+    $("#serie_"+p).value = r.serie || '';
+    $("#rizq_"+p).value = r.rizq || '';
+    $("#rder_"+p).value = r.rder || '';
+    $("#ct_"+p).value = r.ct || '';
+    $("#psi_"+p).value = r.psi || '';
+    const cnt = d.fotos?.[p]?.length || 0;
+    document.getElementById('infof_'+p).textContent = cnt? `Fotos guardadas: ${cnt}` : '';
+  }
+}
+
+$("#btnDelete").addEventListener('click', ()=>{
+  if(!CURRENT_EQUIPO){ toast('Elige un equipo'); return; }
+  const fechaISO = ($("#fechaExam").value || new Date().toISOString().slice(0,10));
+  const key = `${CURRENT_EQUIPO}|${fechaISO}`;
+  if(DRAFTS[key]){
+    delete DRAFTS[key];
+    saveDraftsToStorage(DRAFTS);
+    renderDraftsList();
+    toast('Borrador eliminado');
+    buildForm(CURRENT_EQUIPO, lastByPosition((BY_FLOTA.get(CURRENT_FLOTA)||new Map()).get(CURRENT_EQUIPO)||[]));
+  }
+});
+
+// Export ALL -> one Excel + ZIP
+$("#btnExport").addEventListener('click', async ()=>{
+  if(!Object.keys(DRAFTS).length){ toast('No hay borradores'); return; }
+  const cols = [
+    'Account BibForce Id','Vehicle’s registration #','Pos TTC','Movement’s date','Axle #',
+    'Tire Position','Vehicle Mileage','Vehicle Hours','Tire Serial #',
+    'Internal RTD','Central RTD','External RTD','Tire Destination',
+    'Internal Damage Code (CT1)','Presión ','Temperatura ','CT Examen ','Observaciones'
+  ];
+  const posMap = {P1:{pos:'1L', axle:1}, P2:{pos:'1R', axle:1}, P3:{pos:'2L', axle:2}, P4:{pos:'2R', axle:2}};
+  const rowsOut = [];
+  const zip = new JSZip();
+  const fotosRoot = zip.folder('fotos');
+  for(const [key, d] of Object.entries(DRAFTS)){
+    const [eq, fechaISO] = key.split('|');
+    const fecha = new Date(fechaISO);
+    const fechaTxt = ddmmyyyy_compact(fecha);
+    const sub = fotosRoot.folder(`${eq}_${fechaTxt}`);
+    for(const p of ['P1','P2','P3','P4']){
+      const vals = d.rows?.[p] || {};
+      const fotos = d.fotos?.[p] || [];
+      const names = [];
+      let i=1;
+      for(const f of fotos){
+        const ext = (f.name.split('.').pop()||'jpg').toLowerCase();
+        const fname = `${eq}_${p}_${fechaTxt}_${i}.${ext}`;
+        names.push(fname); i++;
+        const arrayBuffer = await f.file.arrayBuffer();
+        sub.file(fname, arrayBuffer);
+      }
+      rowsOut.push({
+        'Account BibForce Id': null,
+        'Vehicle’s registration #': eq,
+        'Pos TTC': null,
+        'Movement’s date': fechaISO,
+        'Axle #': posMap[p].axle,
+        'Tire Position': posMap[p].pos,
+        'Vehicle Mileage': null,
+        'Vehicle Hours': d.horometro || '',
+        'Tire Serial #': vals.serie || '',
+        'Internal RTD': vals.rizq || '',
+        'Central RTD': null,
+        'External RTD': vals.rder || '',
+        'Tire Destination': 'Examen',
+        'Internal Damage Code (CT1)': null,
+        'Presión ': vals.psi || '',
+        'Temperatura ': null,
+        'CT Examen ': vals.ct || '',
+        'Observaciones': names.length? names.join('; ') : null
+      });
+    }
+  }
+  const ws = XLSX.utils.json_to_sheet(rowsOut, {header: cols});
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  zip.file('Examenes_MASTER.xlsx', wbout);
+
+  const content = await zip.generateAsync({type:'blob'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(content);
+  a.download = 'export_examenes.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Exportado');
+});
+
+// Export/Import drafts as JSON
+$("#btnSaveDrafts").addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(DRAFTS)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'borradores.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+$("#loadDrafts").addEventListener('change', (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  const fr = new FileReader();
+  fr.onload = ()=>{
+    try{
+      const obj = JSON.parse(fr.result);
+      DRAFTS = obj; saveDraftsToStorage(DRAFTS); renderDraftsList(); toast('Borradores importados');
+    }catch(e){ alert('JSON inválido'); }
+  };
+  fr.readAsText(file);
+});
+
+// PWA install prompt
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt = e; });
+$("#btnInstall").addEventListener('click', async ()=>{
+  if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; }
+});
