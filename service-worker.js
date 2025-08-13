@@ -1,13 +1,30 @@
-// v5 cache bump
-self.addEventListener('install', (e)=>{
-  e.waitUntil(caches.open('klinge-lite-v5').then(cache=> cache.addAll([
-    './','./index.html','./app.js','./manifest.webmanifest',
-    'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js',
-    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
-    'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
-    './icons/icon-192.png','./icons/icon-512.png'
-  ])));
+const CACHE_NAME = 'klinge-lite-v6c';
+const ASSETS = [
+  '/',
+  '/index.html',
+  '/app.js',
+  '/manifest.webmanifest',
+  '/icons/icono_mineria_color_192.png',
+  '/icons/icono_mineria_color_512.png'
+];
+
+self.addEventListener('install', e=>{
+  e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(ASSETS)));
 });
-self.addEventListener('fetch', (e)=>{
-  e.respondWith(caches.match(e.request).then(resp=> resp || fetch(e.request)));
+self.addEventListener('activate', e=>{
+  e.waitUntil(caches.keys().then(keys=>Promise.all(
+    keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k))
+  )));
 });
+self.addEventListener('fetch', e=>{
+  e.respondWith(
+    caches.match(e.request).then(r=>
+      r || fetch(e.request).then(res=>{
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then(c=> c.put(e.request, copy));
+        return res;
+      }).catch(()=> caches.match('/index.html'))
+    )
+  );
+});
+
