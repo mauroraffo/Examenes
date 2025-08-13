@@ -12,7 +12,7 @@ let GRID_PRESET = localStorage.getItem('grid_preset') || 'auto4';
 
 // Grid presets (exact layouts per Mauro)
 
-// Grid presets (solicitud Mauro: exactos)
+// Grid presets (según especificación exacta)
 const GRID_PRESETS = {
   auto4:  { name: 'Auto compacto (4×N)', layout: null, cols: 4 },
 
@@ -106,7 +106,7 @@ function findColumn(regexes){
 
 let COL_POS, COL_EQUIPO, COL_FLOTA, COL_FECHA, COL_HORO, COL_MARCA, COL_TIPO, COL_SERIE, COL_HRTOT, COL_RIZQ, COL_RDER;
 function mapColumns(){
-  COL_POS = col('Posición') || col('Posicion') || findColumn([/posici/i]);
+  COL_POS   = col('Posición') || col('Posicion');
   COL_EQUIPO= col('Equipo');
   COL_FLOTA = col('Flota');
   COL_FECHA = col('Fecha Evento');
