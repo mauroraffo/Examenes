@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Desechos</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f172a" />
+  <style>
+    :root{ --bg:#0b1220; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --border:#1f2937; --accent:#93c5fd; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text)}
+    header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--card);position:sticky;top:0;z-index:10;border-bottom:1px solid var(--border)}
+    .wrap{padding:16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px}
+    .title{font-weight:700;font-size:14px;letter-spacing:.02em;color:var(--accent)}
+    .muted{color:var(--muted);font-size:12px}
+    .pill{padding:6px 10px;border-radius:999px;border:1px solid var(--border);background:var(--bg);font-size:12px}
+    input,select,button{padding:8px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text)}
+    .grid2{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+    .table{border:1px solid var(--border);border-radius:12px;overflow:hidden}
+    .thead{display:grid;grid-template-columns:2fr 4fr 2fr;background:#0b5fad;color:#fff;font-weight:700}
+    .trow{display:grid;grid-template-columns:2fr 4fr 2fr;border-top:1px solid var(--border);cursor:pointer}
+    .cell{padding:10px}
+    .trow:hover{background:rgba(255,255,255,0.03)}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .stat{border:1px solid var(--border);border-radius:12px;padding:10px;text-align:center}
+    @media (max-width:768px){ .grid2{grid-template-columns:1fr} .thead,.trow{grid-template-columns:3fr 4fr 3fr} .stats{grid-template-columns:repeat(2,1fr)} }
+
+    /* tema presets */
+    .theme-dark{--bg:#0b1220;--card:#111827;--text:#e5e7eb;--muted:#9ca3af;--border:#1f2937;--accent:#93c5fd}
+    .theme-light{--bg:#f8fafc;--card:#ffffff;--text:#0f172a;--muted:#475569;--border:#e2e8f0;--accent:#2563eb}
+    .theme-gray{--bg:#171717;--card:#262626;--text:#e5e5e5;--muted:#a3a3a3;--border:#404040;--accent:#22d3ee}
+    .theme-sand{--bg:#faf4ed;--card:#fff7ed;--text:#1f2937;--muted:#7c6f64;--border:#e8decf;--accent:#d97706}
+    .theme-green{--bg:#0d1b17;--card:#11221c;--text:#e7f5ee;--muted:#86a397;--border:#1b2e27;--accent:#22c55e}
+    #themePanel{position:absolute; right:16px; top:60px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px; display:none}
+    .chips{display:flex;flex-wrap:wrap;gap:8px}
+    .chip{padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:var(--bg);cursor:pointer}
+    .chip.active{background:var(--accent);color:#0b1220;border-color:transparent}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <a href="index.html" class="pill">Inicio</a>
+      <span class="title" style="margin-left:8px">Desechos</span>
+    </div>
+    <div>
+      <button id="themeBtn" class="pill" title="Temas">⚙</button>
+      <a href="rodando.html" class="pill" style="margin-left:8px">Rodando</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="card">
+      <div class="title">Desechos</div>
+      <div class="grid2" style="margin-top:8px">
+        <div>
+          <label>Dimensión</label>
+          <select id="fDimension"></select>
+        </div>
+        <div>
+          <label>Fecha Último Evento (años)</label>
+          <div id="yearsChips" class="chips"></div>
+        </div>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <div>
+          <label>Buscar serie</label>
+          <input id="fSearch" type="text" placeholder="Escribe para filtrar..." />
+        </div>
+      </div>
+      <!-- Resumen arriba -->
+      <div id="detailPanel" style="margin-top:12px" class="stats">
+        <div class="stat"><div class="muted">Horas Delanteras</div><div id="stHDel" style="font-size:22px">-</div></div>
+        <div class="stat"><div class="muted">Horas Totales</div><div id="stHTot" style="font-size:22px">-</div></div>
+        <div class="stat"><div class="muted">CT_Desecho</div><div id="stCT" style="font-size:22px">-</div></div>
+        <div class="stat"><div class="muted">Posición</div><div id="stPos" style="font-size:22px">-</div></div>
+      </div>
+
+      <div style="margin-top:12px" class="table">
+        <div class="thead">
+          <div class="cell">Serie</div>
+          <div class="cell">Tipo Neumático</div>
+          <div class="cell">Fecha</div>
+        </div>
+        <div id="listBody"></div>
+      </div>
+    </div>
+  </div>
+  <!-- Panel presets (desechos) -->
+  <div id="themePanel" class="card">
+    <label>Tema</label>
+    <select id="themePreset">
+      <option value="dark">Oscuro</option>
+      <option value="light">Claro</option>
+      <option value="gray">Gris</option>
+      <option value="sand">Arena</option>
+      <option value="green">Verde</option>
+    </select>
+  </div>
+  <script src="common.js"></script>
+  <script src="desechos.js"></script>
+</body>
+</html>

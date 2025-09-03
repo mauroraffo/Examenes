@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rodando y Exámenes</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0f172a" />
+  <style>
+    :root{ --bg:#0b1220; --card:#111827; --text:#e5e7eb; --muted:#9ca3af; --border:#1f2937; --accent:#93c5fd; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text)}
+    header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--card);position:sticky;top:0;z-index:10;border-bottom:1px solid var(--border)}
+    .wrap{display:grid;grid-template-columns:1fr 300px;gap:16px;padding:16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px}
+    .grid{display:grid;gap:12px}
+    .row{display:flex;gap:8px}
+    .right{display:flex;flex-direction:column;gap:12px}
+    .logo{height:28px}
+    .title{font-weight:700;font-size:14px;letter-spacing:.02em;color:var(--accent)}
+    .muted{color:var(--muted);font-size:12px}
+    label{display:block;font-size:12px;margin:6px 0 4px;color:var(--muted)}
+    input,select,button,textarea{width:100%;padding:8px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);outline:none}
+    button{cursor:pointer;font-weight:600}
+    .pos{min-height:170px}
+    .pill{padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:var(--bg);font-size:12px}
+    .foot{display:flex;gap:8px}
+    .rowgrid{display:grid;gap:12px}
+    .toast{position:fixed;right:16px;bottom:16px;background:#16a34a;color:#fff;padding:10px 12px;border-radius:10px;display:none}
+    .danger{background:#dc2626}
+    @media (max-width: 768px){
+      .wrap{display:block;padding:12px}
+      .right{margin-top:12px}
+      #posGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="row" style="align-items:center">
+      <a href="index.html" class="pill">Inicio</a>
+      <div style="margin-left:8px">
+        <div class="title">Rodando y Exámenes</div>
+        <div class="muted">Exámenes por modal · Export ZIP</div>
+      </div>
+    </div>
+    <div class="foot">
+      <a id="btnInstall" class="pill" href="#">Instalar</a>
+      <a id="btnExportSesionZip" class="pill" href="#">Exportar exámenes (ZIP)</a>
+      <button id="themeBtn" class="pill" title="Temas">⚙</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <main>
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <div>
+            <div class="title">Equipo: <span id="equiponame">-</span></div>
+            <div class="muted">Último evento: <span id="fechalast">-</span> · Horómetro: <span id="horolast">-</span></div>
+          </div>
+          <div style="min-width:420px">
+            <div class="row" style="align-items:center">
+              <div style="flex:1">
+                <label>Tamaño de grilla (número de posiciones)</label>
+                <select id="posCount">
+                  <option value="4">4</option>
+                  <option value="6">6</option>
+                  <option value="8">8</option>
+                  <option value="10">10</option>
+                  <option value="12" selected>12</option>
+                </select>
+              </div>
+              <div style="flex:1">
+                <label>Tipo de grilla (preset)</label>
+                <select id="gridPreset">
+                  <option>Scoop / Auto</option>
+                  <option>Dumper</option>
+                  <option>Moto</option>
+                  <option>Stacker</option>
+                  <option>Volquete 8x4</option>
+                  <option>Volquete 6x4</option>
+                </select>
+              </div>
+            </div>
+            <div class="muted" style="margin-top:4px">La grilla es solo visual. Los exámenes se ingresan por modal.</div>
+          </div>
+        </div>
+        <div id="posGrid" class="grid" style="margin-top:12px"></div>
+      </div>
+    </main>
+    <aside class="right">
+      <div class="card">
+        <div class="title">2) Filtrar</div>
+        <label>Flota</label>
+        <select id="flota"></select>
+        <label>Equipo</label>
+        <input id="buscaEquipo" type="text" placeholder="Buscar..." />
+        <select id="equipo" size="8"></select>
+      </div>
+      <div class="card">
+        <div class="title">Exámenes guardados</div>
+        <div id="draftList" class="muted">Sin exámenes.</div>
+        <div class="row" style="gap:8px;margin-top:10px">
+          <button id="btnExportSesionZipSide">Descargar Excel+Fotos</button>
+          <button id="btnClearSesion" class="danger">Borrar todos</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="toast" class="toast">Listo</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="common.js"></script>
+  <script src="app.js"></script>
+  <script>
+    // Cargar dataset desde IndexedDB; si no, volver a Inicio
+    (async function(){
+      try{
+        const ds = await datasetStore.load();
+        if(!(ds && ds.rows && ds.cols)){
+          alert('Primero carga el CSV en Inicio.');
+          location.href = 'index.html';
+          return;
+        }
+        // Inyectar dataset en la app (variables globales definidas en app.js)
+        if(Array.isArray(ds.rows)) { RAW = ds.rows; }
+        if(Array.isArray(ds.cols)) { COLS = ds.cols; }
+        // Inicializar mapeo con alias (como en Desechos/Home), con fallback al clásico
+        if(typeof buildHeaderMap === 'function') buildHeaderMap(COLS);
+        if(typeof mapColumnsAuto === 'function') mapColumnsAuto();
+        else if(typeof mapColumns === 'function') mapColumns();
+        if(typeof indexByFlotaEquipo === 'function') indexByFlotaEquipo();
+        if(typeof fillFlotas === 'function') fillFlotas();
+      }catch(e){ console.error(e); alert('Error al cargar dataset local'); }
+    })();
+  </script>
+
+  <!-- Modal Ingresar Examen (igual a versión funcional) -->
+  <div id="examModal" class="modal hidden">
+    <div class="modal-content card">
+      <h2 class="title">Ingresar Examen</h2>
+      <div class="row" style="gap:12px;flex-wrap:wrap;">
+        <div style="flex:1">
+          <label>Flota</label>
+          <input type="text" id="modalFlota" readonly>
+        </div>
+        <div style="flex:1">
+          <label>Equipo</label>
+          <input type="text" id="modalEquipo" readonly>
+        </div>
+      </div>
+      <div class="row" style="gap:12px;flex-wrap:wrap;">
+        <div style="flex:1">
+          <label>Horómetro</label>
+          <input type="number" id="modalHoro">
+        </div>
+        <div style="flex:1">
+          <label>Posición</label>
+          <input type="number" id="modalPos" readonly>
+        </div>
+      </div>
+      <div class="row" style="gap:12px;flex-wrap:wrap;">
+        <div style="flex:1">
+          <label>Rem. Izq</label>
+          <input type="number" id="modalRizq">
+        </div>
+        <div style="flex:1">
+          <label>Rem. Der</label>
+          <input type="number" id="modalRder">
+        </div>
+      </div>
+      <div>
+        <label>CT Examen</label>
+        <input type="text" id="modalCT">
+      </div>
+      <div>
+        <label>Comentarios</label>
+        <textarea id="modalComentarios"></textarea>
+      </div>
+      <div>
+        <label>Fotos</label>
+        <input type="file" id="modalFotos" accept="image/*" multiple capture="environment">
+      </div>
+      <div class="row" style="gap:12px;margin-top:12px;">
+        <button id="modalSave" onclick="modalSave()">Guardar</button>
+        <button class="danger" id="modalCancel" onclick="modalCancel()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .modal { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:999; }
+    .modal-content { max-width: 500px; width: 100%; }
+    .hidden { display: none; }
+    #examModal input, #examModal textarea, #examModal select { padding:6px; font-size:14px; }
+  </style>
+</body>
+</html>

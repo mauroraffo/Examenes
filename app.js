@@ -80,21 +80,25 @@ function buildHeaderMap(fields){ HEADER_MAP.clear(); for(const f of (fields||[])
 function alias(...names){ for(const n of names){ const h=HEADER_MAP.get(n); if(h) return h; } return null; }
 
 function mapColumnsAuto(){
-  // alias por columna
+  // alias por columna (normalizados)
   COL_POS   = alias('posicion','pos','tire position','tireposition','pos ttc','pos ttc') || col('Posicion');
-  COL_EQUIPO= alias('equipo','vehicle','vehiculo','vehículo','vehiculo#','vehicle…ts registration #','vehicletag','patente') || col('Equipo');
-  COL_FLOTA = alias('flota','fleet') || col('Flota');
-  COL_FECHA = alias('fecha evento','fecha','movement…ts date','movement date','date');
-  COL_HORO  = alias('horometro','horómetro','vehicle hours','horas','hm');
+  COL_EQUIPO= alias(
+    'equipo','vehiculo','vehiculo#','vehiculo id','unidad','unidad#','codigo equipo','equipo id',
+    'vehicle','vehicle registration','vehicle registration #','vehicletag','vehicle id','unit','unit id','patente','matricula'
+  ) || col('Equipo');
+  COL_FLOTA = alias('flota','fleet','flota id','nombre flota') || col('Flota');
+  COL_FECHA = alias('fecha ultimo evento','fecha evento','fecha','movement ts date','movement date','date');
+  COL_HORO  = alias('horometro','horometro equipo','horómetro','vehicle hours','horas','hm');
   COL_MARCA = alias('marca neumatico','marca neumatico','marca','brand');
-  COL_TIPO  = alias('tipo neumatico','diseno','diseño','pattern','tipo');
+  COL_TIPO  = alias('tipo neumatico','diseno','diseño','pattern','tipo','design');
   COL_SERIE = alias('serie neumatico','serie','tire serial #','serial','serial#');
   COL_HRTOT = alias('horas totales','total horas','hours total');
   COL_RIZQ  = alias('rem. izquierdo','rem izquierdo','r interna','internal rtd','rem izq','r izq');
   COL_RDER  = alias('rem. derecho','rem derecho','r externa','external rtd','rem der','r der');
 }
 
-$('#csv').addEventListener('change', (e)=>{
+const __csvHome = document.getElementById('csv');
+if(__csvHome) __csvHome.addEventListener('change', (e)=>{
   const file = e.target.files[0]; if(!file) return;
   const parseOnce = (delimiter)=> new Promise((resolve)=>{
     Papa.parse(file, { header:true, skipEmptyLines:true, delimiter: delimiter||undefined, complete: (res)=> resolve(res) });
@@ -309,24 +313,3 @@ document.addEventListener('click', (ev)=>{ const btn=ev.target && ev.target.clos
 // PWA install prompt
 let deferredPrompt; window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt=e; });
 document.getElementById('btnInstall')?.addEventListener('click', async ()=>{ if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; }});
-
-// === Tema (presets) ===
-const THEME_KEY = 'theme_preset';
-const THEME_CLASS = {
-  dark:'theme-dark', light:'theme-light', gray:'theme-gray', sand:'theme-sand', green:'theme-green'
-};
-function applyTheme(preset){
-  const body=document.body; Object.values(THEME_CLASS).forEach(cls=> body.classList.remove(cls));
-  const cls = THEME_CLASS[preset] || THEME_CLASS.dark; body.classList.add(cls);
-  try{ localStorage.setItem(THEME_KEY, preset); }catch{}
-}
-// Init tema en carga
-(function(){
-  const saved = localStorage.getItem(THEME_KEY) || 'dark';
-  applyTheme(saved);
-  const sel = document.getElementById('themePreset'); if(sel){ sel.value = saved; sel.addEventListener('change', ()=> applyTheme(sel.value)); }
-  const btn = document.getElementById('themeBtn'); const panel = document.getElementById('themePanel');
-  if(btn && panel){ btn.addEventListener('click', (e)=>{ e.preventDefault(); panel.style.display = panel.style.display==='block' ? 'none' : 'block'; }); }
-  // Cerrar panel al hacer click fuera
-  document.addEventListener('click', (ev)=>{ const p=document.getElementById('themePanel'); const b=document.getElementById('themeBtn'); if(!p||!b) return; if(p.contains(ev.target) || b.contains(ev.target)) return; p.style.display='none'; });
-})();

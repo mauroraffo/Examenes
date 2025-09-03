@@ -1,10 +1,13 @@
-const CACHE_NAME = 'klinge-lite-v4';
+const CACHE_NAME = 'klinge-lite-v6';
 const ASSETS = [
-  './','./index.html','./app.js','./manifest.webmanifest',
+  './',
+  './index.html','./rodando.html','./desechos.html',
+  './app.js','./common.js','./home.js',
+  './manifest.webmanifest',
   'https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js',
   'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
   'https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js',
-  './icons/icon-192.png','./icons/icon-512.png'
+  './michelin.jpg'
 ];
 
 self.addEventListener('install', (event)=>{
